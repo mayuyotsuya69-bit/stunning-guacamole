@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
-"""AI関与スコア 説明資料の PowerPoint を生成する。"""
+"""AI関与スコア 説明資料（社長決裁資料）の PowerPoint を生成する。
+
+トンマナ:
+  16:9 / 背景白 / 文字黒 / アクセント #3E8C7C
+  フォント: ヒラギノ角ゴ ProN（本文 W3・10.5pt以上 / 見出し W6・18pt以上）
+日本語の禁則: 意味の区切りで明示改行し、数字+単位・括弧の分断を避ける。
+"""
 
 from pptx import Presentation
 from pptx.util import Pt, Emu, Inches
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.oxml.ns import qn
 
-# 配色
-NAVY = RGBColor(0x1F, 0x33, 0x5E)
-BLUE = RGBColor(0x2E, 0x5C, 0xA6)
-LIGHT = RGBColor(0xEE, 0xF2, 0xF8)
-GRAY = RGBColor(0x55, 0x55, 0x55)
-WHITE = RGBColor(0xFF, 0xFF, 0xFF)
-RED = RGBColor(0xB3, 0x2A, 0x2A)
-GREEN = RGBColor(0x1E, 0x7A, 0x46)
+# ---- 配色（トンマナ） ----
+ACCENT = RGBColor(0x3E, 0x8C, 0x7C)   # #3E8C7C
+TINT   = RGBColor(0xE2, 0xEF, 0xEC)   # アクセントの淡色（淡teal）
+TINT2  = RGBColor(0xF1, 0xF7, 0xF5)   # さらに淡い
+BLACK  = RGBColor(0x1A, 0x1A, 0x1A)
+WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
+GRAYBORDER = RGBColor(0xCF, 0xDD, 0xD9)
 
-FONT = "Meiryo"  # 日本語フォント
+W3 = "ヒラギノ角ゴ ProN W3"
+W6 = "ヒラギノ角ゴ ProN W6"
+MONO = "Osaka-Mono"
 
 prs = Presentation()
 prs.slide_width = Inches(13.333)
@@ -24,260 +33,249 @@ SW, SH = prs.slide_width, prs.slide_height
 BLANK = prs.slide_layouts[6]
 
 
-def add_box(slide, l, t, w, h):
-    return slide.shapes.add_textbox(l, t, w, h).text_frame
+def _set_ea(run, name):
+    """East Asian フォントを runs に確実に設定する。"""
+    run.font.name = name
+    rPr = run._r.get_or_add_rPr()
+    for tag in ("a:ea", "a:cs"):
+        el = rPr.find(qn(tag))
+        if el is None:
+            el = rPr.makeelement(qn(tag), {})
+            rPr.append(el)
+        el.set("typeface", name)
 
 
-def set_run(r, text, size, color=NAVY, bold=False, font=FONT):
-    r.text = text
-    r.font.size = Pt(size)
-    r.font.bold = bold
-    r.font.color.rgb = color
-    r.font.name = font
+def box(slide, l, t, w, h):
+    tf = slide.shapes.add_textbox(l, t, w, h).text_frame
+    tf.word_wrap = True
+    tf.margin_left = Emu(0); tf.margin_right = Emu(0)
+    tf.margin_top = Emu(0); tf.margin_bottom = Emu(0)
+    return tf
 
 
-def fill_rect(slide, l, t, w, h, color):
-    from pptx.enum.shapes import MSO_SHAPE
+def rect(slide, l, t, w, h, color, line=None):
     shp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, l, t, w, h)
-    shp.fill.solid()
-    shp.fill.fore_color.rgb = color
-    shp.line.fill.background()
+    shp.fill.solid(); shp.fill.fore_color.rgb = color
+    if line is None:
+        shp.line.fill.background()
+    else:
+        shp.line.color.rgb = line; shp.line.width = Pt(1)
     shp.shadow.inherit = False
     return shp
 
 
-def header(slide, title, num):
-    fill_rect(slide, 0, 0, SW, Inches(1.1), NAVY)
-    fill_rect(slide, 0, Inches(1.1), SW, Emu(40000), BLUE)
-    tf = add_box(slide, Inches(0.5), Inches(0.18), Inches(11.5), Inches(0.8))
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]
-    set_run(p.add_run(), title, 28, WHITE, bold=True)
-    # ページ番号
-    tfn = add_box(slide, Inches(12.4), Inches(0.18), Inches(0.7), Inches(0.8))
-    tfn.vertical_anchor = MSO_ANCHOR.MIDDLE
-    pn = tfn.paragraphs[0]
-    pn.alignment = PP_ALIGN.RIGHT
-    set_run(pn.add_run(), str(num), 16, WHITE)
-
-
-def bullets(slide, items, left=Inches(0.7), top=Inches(1.5),
-            width=Inches(11.9), height=Inches(5.6), size=18, gap=8):
-    """items: list of (level, text, color, bold)"""
-    tf = add_box(slide, left, top, width, height)
-    tf.word_wrap = True
-    first = True
-    for level, text, color, bold in items:
-        p = tf.paragraphs[0] if first else tf.add_paragraph()
-        first = False
-        p.level = level
-        p.space_after = Pt(gap)
-        prefix = "" if level == 0 else ""
-        marker = "● " if level == 0 else "－ "
-        set_run(p.add_run(), marker + text, size - level * 2, color, bold)
-    return tf
-
-
-# ---------- スライド1：表紙 ----------
-s = prs.slides.add_slide(BLANK)
-fill_rect(s, 0, 0, SW, SH, NAVY)
-fill_rect(s, 0, Inches(2.55), SW, Inches(2.3), BLUE)
-tf = add_box(s, Inches(0.8), Inches(2.7), Inches(11.7), Inches(2.0))
-tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-p = tf.paragraphs[0]
-p.alignment = PP_ALIGN.CENTER
-set_run(p.add_run(), "AI関与スコア　算出方法 説明資料", 40, WHITE, bold=True)
-p2 = tf.add_paragraph()
-p2.alignment = PP_ALIGN.CENTER
-set_run(p2.add_run(), "― 作文が生成AIで書かれた可能性を、どう判定しているか ―", 20, WHITE)
-tf3 = add_box(s, Inches(0.8), Inches(6.2), Inches(11.7), Inches(0.8))
-p3 = tf3.paragraphs[0]
-p3.alignment = PP_ALIGN.CENTER
-set_run(p3.add_run(), "2026年6月15日　／　経営層向け報告　／　位置づけ：参考指標（断定ではない）", 14, RGBColor(0xCF, 0xD8, 0xE8))
-
-
-# ---------- スライド2：結論（先出し） ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "結論（先に要点）", 2)
-bullets(s, [
-    (0, "「AIが書いたか／自分で考えたか」を断定するものではありません。", NAVY, True),
-    (1, "生成AIへの「丸写し・大部分の写し」の“可能性の高さ”を 0〜100 で示す参考指標です。", GRAY, False),
-    (0, "数値は統計式や検出器による機械的な計算ではありません。", NAVY, True),
-    (1, "判定用の生成AI（LLM）が、各作文を“同一の評価基準”で読み、点数を付けています。", GRAY, False),
-    (1, "＝「採点ルールを固定した採点者（AI）に、全員分を同じ物差しで読ませている」仕組み。", GRAY, False),
-    (0, "判定の核心は、次の3点を見ていることです。", NAVY, True),
-    (1, "① 本人の体験・実感・固有性が見えるか", BLUE, True),
-    (1, "② 文章が整いすぎていないか", BLUE, True),
-    (1, "③ AI特有の抽象論・定型表現・均質な構成が続いていないか", BLUE, True),
-], top=Inches(1.45))
-
-
-# ---------- スライド3：目的 ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "1. 目的", 3)
-bullets(s, [
-    (0, "手書き提出の作文について、生成AI（ChatGPT等）の文章を「そのまま／大部分写している可能性」を見立てる指標。", NAVY, True),
-    (0, "手書きであること自体は、人間が書いた根拠として扱いません。", GRAY, False),
-    (1, "手書きでもAI出力を写すことは可能なため。", GRAY, False),
-    (0, "判定対象は、文章の「内容・構成・語彙・表現」のみ。", GRAY, False),
-    (0, "目的はスクリーニング（要確認の作文を見つけること）。最終判断は人が行う前提。", RED, True),
-], top=Inches(1.6))
-
-
-# ---------- スライド4：スコアの意味 ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "2. スコアの意味（0〜100の整数）", 4)
-# 表
-from pptx.enum.shapes import MSO_SHAPE
-rows = [
-    ("0〜30", "書き写した可能性は低い", GREEN),
-    ("31〜60", "一部参考にした／判定困難", BLUE),
-    ("61〜80", "書き写した可能性がやや高い", RGBColor(0xC9, 0x7A, 0x12)),
-    ("81〜100", "書き写した可能性が高い", RED),
-]
-top = Inches(1.6)
-for i, (band, desc, col) in enumerate(rows):
-    y = top + Inches(0.95) * i
-    fill_rect(s, Inches(0.7), y, Inches(2.6), Inches(0.8), col)
-    tf = add_box(s, Inches(0.7), y, Inches(2.6), Inches(0.8))
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
-    set_run(p.add_run(), band, 20, WHITE, bold=True)
-    tf2 = add_box(s, Inches(3.5), y, Inches(8.8), Inches(0.8))
-    tf2.vertical_anchor = MSO_ANCHOR.MIDDLE
-    set_run(tf2.paragraphs[0].add_run(), desc, 20, NAVY, bold=False)
-tf3 = add_box(s, Inches(0.7), Inches(5.6), Inches(11.9), Inches(1.4))
-tf3.word_wrap = True
-set_run(tf3.paragraphs[0].add_run(), "運用方針：迷う場合は 40〜60 に寄せる。0〜10／90〜100 の極端な値は、明確な根拠が複数そろう場合のみ使用。", 16, GRAY)
-
-
-# ---------- スライド5：判定の仕組み ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "3. 判定の仕組み（どう点数を出すか）", 5)
-# フロー
-steps = ["作文（手書き）", "テキスト化", "判定用AI(LLM)\n＋評価基準", "スコア0〜100\n＋根拠3点"]
-bx_w = Inches(2.7); bx_h = Inches(1.1); gap = Inches(0.45)
-start = Inches(0.7); y = Inches(1.7)
-for i, txt in enumerate(steps):
-    x = start + (bx_w + gap) * i
-    col = BLUE if i < len(steps) - 1 else NAVY
-    fill_rect(s, x, y, bx_w, bx_h, col)
-    tf = add_box(s, x, y, bx_w, bx_h)
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE; tf.word_wrap = True
-    for j, line in enumerate(txt.split("\n")):
-        p = tf.paragraphs[0] if j == 0 else tf.add_paragraph()
-        p.alignment = PP_ALIGN.CENTER
-        set_run(p.add_run(), line, 15, WHITE, bold=True)
-    if i < len(steps) - 1:
-        ar = add_box(s, x + bx_w, y, gap, bx_h)
-        ar.vertical_anchor = MSO_ANCHOR.MIDDLE
-        pa = ar.paragraphs[0]; pa.alignment = PP_ALIGN.CENTER
-        set_run(pa.add_run(), "▶", 20, NAVY, bold=True)
-bullets(s, [
-    (0, "スコアはAI（採点者役）の判断であり、固定の計算式から自動算出される値ではありません。", NAVY, True),
-    (0, "判断がブレないよう、評価の観点・各スコア帯の定義・禁止事項を文章で細かく固定しています。", GRAY, False),
-    (1, "→「全員を同じ物差しで読む」ことを担保。", GRAY, False),
-    (0, "同じ作文でも判定は多少揺れ得るため、確定値ではなく目安として扱います。", RED, True),
-], top=Inches(3.4), size=17)
-
-
-# ---------- スライド6：評価の3軸 ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "4. 評価の3つの軸（AIは何を見ているか）", 6)
-cols = [
-    ("A. 具体性・本人性", ["経験・失敗・迷いの記述", "部活/家族/友人/地域", "固有名詞・具体的場面", "↑あればAI可能性は低", "一般論・大きな主語のみ", "どの生徒でも書ける内容", "↑ならAI可能性は高"]),
-    ("B. 文体・語彙", ["自然な言い回し", "文の長さのばらつき", "感情・言い直しの揺れ", "↑あればAI可能性は低", "均質すぎる文体", "定型表現・硬い抽象語", "↑ならAI可能性は高"]),
-    ("C. 構成", ["多少の偏り・寄り道", "段落ごとの熱量差", "考えの流れが見える", "↑あればAI可能性は低", "整いすぎた序論本論結論", "機械的整理・模範解答型", "↑ならAI可能性は高"]),
-]
-cw = Inches(4.0); cx0 = Inches(0.5); cy = Inches(1.5); gapc = Inches(0.25)
-for i, (title, items) in enumerate(cols):
-    x = cx0 + (cw + gapc) * i
-    fill_rect(s, x, cy, cw, Inches(0.7), BLUE)
-    tf = add_box(s, x, cy, cw, Inches(0.7)); tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
-    set_run(p.add_run(), title, 18, WHITE, bold=True)
-    fill_rect(s, x, cy + Inches(0.7), cw, Inches(5.0), LIGHT)
-    body = add_box(s, x + Inches(0.15), cy + Inches(0.85), cw - Inches(0.3), Inches(4.8))
-    body.word_wrap = True
-    first = True
-    for it in items:
-        p = body.paragraphs[0] if first else body.add_paragraph()
-        first = False
-        p.space_after = Pt(5)
-        if it.startswith("↑"):
-            col = GREEN if "低" in it else RED
-            set_run(p.add_run(), it, 13, col, bold=True)
-        else:
-            set_run(p.add_run(), "・" + it, 14, GRAY, bold=False)
-
-
-# ---------- スライド7：誤判定を防ぐルール ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "5. 誤判定を防ぐルール（公平性の担保）", 7)
-bullets(s, [
-    (0, "「文章がうまい子をAI扱いしてしまわないか」への対策を明示しています。", NAVY, True),
-    (0, "単独の特徴だけでは高スコアにしない：", RED, True),
-    (1, "「手書きだから人間」とは判断しない", GRAY, False),
-    (1, "「誤字脱字があるから人間」とは単独で判断しない", GRAY, False),
-    (1, "「文章が上手いからAI」とは判断しない", GRAY, False),
-    (1, "「構成が整っているからAI」とは単独で判断しない", GRAY, False),
-    (1, "1つの特徴だけで極端なスコアにしない／「AIが書いた」と断定しない", GRAY, False),
-    (0, "高スコアにしてよいのは複数の根拠がそろう場合のみ。", GREEN, True),
-    (1, "具体的体験がほぼない・抽象論が続く・定型表現が多い・整いすぎ 等が同時に見られる場合。", GRAY, False),
-], top=Inches(1.45), size=17)
-
-
-# ---------- スライド8：出力形式 ----------
-s = prs.slides.add_slide(BLANK)
-header(s, "6. 出力形式（1件ごと）", 8)
-bullets(s, [
-    (0, "スコアだけでなく根拠3点をセットで残し、後から人が確認・反証できるようにしています。", NAVY, True),
-], top=Inches(1.5), size=18)
-fill_rect(s, Inches(0.9), Inches(2.5), Inches(11.5), Inches(3.0), LIGHT)
-tf = add_box(s, Inches(1.2), Inches(2.7), Inches(11.0), Inches(2.7))
-tf.word_wrap = True
-lines = ["スコア: <0〜100の整数>", "", "根拠:", "  - <根拠1>", "  - <根拠2>", "  - <根拠3>"]
-first = True
-for ln in lines:
+def line_para(tf, runs, first=False, align=PP_ALIGN.LEFT, after=4, level=0):
+    """runs: list of (text, size, color, font)。1段落=1行として禁則を制御。"""
     p = tf.paragraphs[0] if first else tf.add_paragraph()
-    first = False
-    set_run(p.add_run(), ln, 18, NAVY, bold=False, font="Consolas")
-tf2 = add_box(s, Inches(0.9), Inches(5.8), Inches(11.5), Inches(1.0))
-tf2.word_wrap = True
-set_run(tf2.paragraphs[0].add_run(), "根拠は必ず3点。可能な場合は作文中の該当箇所を「」で短く引用させています。", 16, GRAY)
+    p.alignment = align
+    p.space_after = Pt(after)
+    p.space_before = Pt(0)
+    p.level = level
+    for text, size, color, font in runs:
+        r = p.add_run(); r.text = text
+        r.font.size = Pt(size); r.font.color.rgb = color
+        _set_ea(r, font)
+    return p
 
 
-# ---------- スライド9：限界 ----------
+def title(slide, text, num):
+    # 左にアクセントの縦バー、黒のタイトル、下にアクセントの罫
+    rect(slide, Inches(0.0), Inches(0.45), Inches(0.16), Inches(0.62), ACCENT)
+    tf = box(slide, Inches(0.45), Inches(0.4), Inches(11.6), Inches(0.75))
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    line_para(tf, [(text, 24, BLACK, W6)], first=True)
+    rect(slide, Inches(0.45), Inches(1.22), Inches(12.45), Pt(2.2), ACCENT)
+    tfn = box(slide, Inches(12.5), Inches(0.5), Inches(0.6), Inches(0.5))
+    line_para(tfn, [(str(num), 12, ACCENT, W6)], first=True, align=PP_ALIGN.RIGHT)
+
+
+def chip(slide, l, t, w, h, label, fill, txtcolor, size=12):
+    rect(slide, l, t, w, h, fill)
+    tf = box(slide, l, t, w, h); tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    line_para(tf, [(label, size, txtcolor, W6)], first=True, align=PP_ALIGN.CENTER)
+
+
+# ============ スライド1：表紙 ============
 s = prs.slides.add_slide(BLANK)
-header(s, "7. この指標の限界（必ず共有すべき点）", 9)
-bullets(s, [
-    (0, "断定ではなく「可能性」の参考値。最終判断は必ず人が行う。", RED, True),
-    (0, "AI判定のため、同じ作文でもスコアが多少揺れることがある。", GRAY, False),
-    (0, "文章力が高い生徒を過剰に疑わない設計だが、誤判定を完全には排除できない。", GRAY, False),
-    (0, "高スコアの作文は「クロ」ではなく「人による確認を優先すべき作文」と位置づける。", BLUE, True),
-], top=Inches(1.7), size=20, gap=14)
+rect(s, 0, 0, SW, SH, WHITE)
+rect(s, 0, Inches(2.35), SW, Pt(3), ACCENT)
+rect(s, 0, Inches(4.35), SW, Pt(3), ACCENT)
+tf = box(s, Inches(0.9), Inches(2.6), Inches(11.5), Inches(1.7))
+tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+line_para(tf, [("AI関与スコア　算出方法 説明資料", 34, BLACK, W6)], first=True, align=PP_ALIGN.CENTER, after=8)
+line_para(tf, [("作文が生成AIで書かれた可能性を、", 18, ACCENT, W6)], align=PP_ALIGN.CENTER, after=0)
+line_para(tf, [("どのように判定しているか", 18, ACCENT, W6)], align=PP_ALIGN.CENTER)
+tf2 = box(s, Inches(0.9), Inches(5.4), Inches(11.5), Inches(1.0))
+line_para(tf2, [("社長決裁資料　／　2026年6月15日", 13, BLACK, W3)], first=True, align=PP_ALIGN.CENTER, after=3)
+line_para(tf2, [("位置づけ：参考指標（断定ではなく、人による最終判断を前提とする）", 13, BLACK, W3)], align=PP_ALIGN.CENTER)
 
 
-# ---------- スライド10：想定問答 ----------
+# ============ スライド2：結論＋スコアの意味 ============
 s = prs.slides.add_slide(BLANK)
-header(s, "8. 想定問答（社長質問への回答案）", 10)
+title(s, "結論 — 何を、どう判定しているか", 2)
+# 左：結論3点
+rect(s, Inches(0.45), Inches(1.45), Inches(6.55), Inches(5.55), TINT2)
+tf = box(s, Inches(0.7), Inches(1.65), Inches(6.1), Inches(5.2))
+line_para(tf, [("結論（要点）", 16, ACCENT, W6)], first=True, after=8)
+line_para(tf, [("① 「AIが書いたか／自分で考えたか」を", 13, BLACK, W3)], after=0)
+line_para(tf, [("　 断定するものではありません。", 13, BLACK, W3)], after=2)
+line_para(tf, [("　 “丸写しの可能性”を 0〜100 で示す", 13, BLACK, W3)], after=0)
+line_para(tf, [("　 参考指標です。", 13, BLACK, W3)], after=10)
+line_para(tf, [("② 統計式や検出器による", 13, BLACK, W3)], after=0)
+line_para(tf, [("　 機械的な計算ではありません。", 13, BLACK, W3)], after=2)
+line_para(tf, [("　 判定用の生成AI（LLM）が、全作文を", 13, BLACK, W3)], after=0)
+line_para(tf, [("　 同一の基準で読み、点数を付けています。", 13, BLACK, W3)], after=10)
+line_para(tf, [("③ 見ているのは次の3点です。", 13, BLACK, W3)], after=2)
+line_para(tf, [("　・本人の体験・実感・固有性が見えるか", 13, BLACK, W3)], after=0)
+line_para(tf, [("　・文章が整いすぎていないか", 13, BLACK, W3)], after=0)
+line_para(tf, [("　・AI特有の抽象論や定型表現、", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　均質な構成が続いていないか", 13, BLACK, W3)], after=0)
+# 右：スコア帯の表
+tf3 = box(s, Inches(7.3), Inches(1.5), Inches(5.6), Inches(0.4))
+line_para(tf3, [("スコアの意味（0〜100の整数）", 16, ACCENT, W6)], first=True)
+bands = [
+    ("0〜30", "書き写した可能性は低い", RGBColor(0x2E, 0x7D, 0x57)),
+    ("31〜60", "一部参考にした／判定困難", ACCENT),
+    ("61〜80", "可能性がやや高い", RGBColor(0xC2, 0x8A, 0x2B)),
+    ("81〜100", "可能性が高い", RGBColor(0xB3, 0x3A, 0x2E)),
+]
+y = Inches(2.05)
+for band, desc, col in bands:
+    chip(s, Inches(7.3), y, Inches(1.8), Inches(0.72), band, col, WHITE, size=15)
+    tf = box(s, Inches(9.25), y, Inches(3.65), Inches(0.72)); tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    line_para(tf, [(desc, 13, BLACK, W3)], first=True)
+    y = y + Inches(0.82)
+rect(s, Inches(7.3), Inches(5.5), Inches(5.6), Inches(1.5), TINT)
+tf = box(s, Inches(7.55), Inches(5.65), Inches(5.1), Inches(1.25))
+line_para(tf, [("運用方針", 13, ACCENT, W6)], first=True, after=3)
+line_para(tf, [("迷う場合は 40〜60 に寄せます。", 12, BLACK, W3)], after=0)
+line_para(tf, [("0〜10 や 90〜100 の極端な値は、", 12, BLACK, W3)], after=0)
+line_para(tf, [("明確な根拠が複数そろう場合のみ使用します。", 12, BLACK, W3)], after=0)
+
+
+# ============ スライド3：判定の仕組み ============
+s = prs.slides.add_slide(BLANK)
+title(s, "判定の仕組み — どう点数を出しているか", 3)
+steps = ["作文（手書き）", "テキスト化", "判定用AI（LLM）\n＋評価基準", "スコア 0〜100\n＋根拠3点"]
+bw = Inches(2.75); bh = Inches(1.15); gp = Inches(0.5)
+x = Inches(0.55); y = Inches(1.65)
+for i, txt in enumerate(steps):
+    fill = TINT if i < len(steps) - 1 else ACCENT
+    fg = BLACK if i < len(steps) - 1 else WHITE
+    rect(s, x, y, bw, bh, fill)
+    tf = box(s, x, y, bw, bh); tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    for j, ln in enumerate(txt.split("\n")):
+        line_para(tf, [(ln, 14, fg, W6)], first=(j == 0), align=PP_ALIGN.CENTER, after=0)
+    if i < len(steps) - 1:
+        ar = box(s, x + bw, y, gp, bh); ar.vertical_anchor = MSO_ANCHOR.MIDDLE
+        line_para(ar, [("▶", 18, ACCENT, W6)], first=True, align=PP_ALIGN.CENTER)
+    x = x + bw + gp
+# 性質の解説
+rect(s, Inches(0.55), Inches(3.25), Inches(12.25), Inches(3.6), TINT2)
+tf = box(s, Inches(0.85), Inches(3.5), Inches(11.7), Inches(3.2))
+line_para(tf, [("この仕組みの性質（社長への説明ポイント）", 16, ACCENT, W6)], first=True, after=8)
+line_para(tf, [("●　スコアは採点者役のAIの“判断”であり、", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　固定の計算式から自動算出される値ではありません。", 13, BLACK, W3)], after=8)
+line_para(tf, [("●　判断が人や日によってブレないよう、", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　評価の観点・各スコア帯の定義・禁止事項を文章で細かく固定しています。", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　→「全員を同じ物差しで読む」ことを担保しています。", 13, ACCENT, W6)], after=8)
+line_para(tf, [("●　同じ作文でも判定は多少揺れ得るため、", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　確定値ではなく“目安”として扱います。", 13, BLACK, W3)], after=0)
+
+
+# ============ スライド4：評価の3軸 ============
+s = prs.slides.add_slide(BLANK)
+title(s, "評価の3つの軸 — AIは何を見ているか", 4)
+cols = [
+    ("A. 具体性・本人性",
+     ["経験・失敗・迷いの記述", "部活／家族／友人／地域", "固有名詞・具体的な場面"],
+     ["一般論・大きな主語ばかり", "どの生徒でも書ける内容", "体験が抽象的で場面が不明"]),
+    ("B. 文体・語彙",
+     ["高校生らしい自然な言い回し", "文の長さにばらつき", "感情や言い直しの揺れ"],
+     ["均質すぎる文体", "「〜が重要である」等の定型", "不自然に硬い抽象語の多用"]),
+    ("C. 構成",
+     ["多少の偏り・寄り道がある", "段落ごとに熱量差がある", "本人の考えの流れが見える"],
+     ["整いすぎた序論・本論・結論", "機械的な整理（第一に…）", "模範解答的すぎる結び"]),
+]
+cw = Inches(4.05); gpc = Inches(0.25); cx = Inches(0.5); cy = Inches(1.5)
+for tlt, low, high in cols:
+    chip(s, cx, cy, cw, Inches(0.6), tlt, ACCENT, WHITE, size=15)
+    # 人間らしい（可能性↓）
+    rect(s, cx, cy + Inches(0.65), cw, Inches(2.45), TINT2)
+    tf = box(s, cx + Inches(0.15), cy + Inches(0.78), cw - Inches(0.3), Inches(2.25))
+    line_para(tf, [("人間らしい → 可能性は低", 12, RGBColor(0x2E, 0x7D, 0x57), W6)], first=True, after=4)
+    for it in low:
+        line_para(tf, [("・" + it, 12, BLACK, W3)], after=2)
+    # AIらしい（可能性↑）
+    rect(s, cx, cy + Inches(3.2), cw, Inches(2.45), TINT)
+    tf = box(s, cx + Inches(0.15), cy + Inches(3.33), cw - Inches(0.3), Inches(2.25))
+    line_para(tf, [("AIらしい → 可能性は高", 12, RGBColor(0xB3, 0x3A, 0x2E), W6)], first=True, after=4)
+    for it in high:
+        line_para(tf, [("・" + it, 12, BLACK, W3)], after=2)
+    cx = cx + cw + gpc
+
+
+# ============ スライド5：公平性のルール＋限界 ============
+s = prs.slides.add_slide(BLANK)
+title(s, "誤判定を防ぐルールと、この指標の限界", 5)
+# 左：公平性ルール
+chip(s, Inches(0.45), Inches(1.5), Inches(6.2), Inches(0.55), "公平性の担保（高スコアにしないルール）", ACCENT, WHITE, size=13)
+rect(s, Inches(0.45), Inches(2.08), Inches(6.2), Inches(4.9), TINT2)
+tf = box(s, Inches(0.7), Inches(2.25), Inches(5.75), Inches(4.6))
+line_para(tf, [("単独の特徴だけでは高スコアにしません。", 13, BLACK, W6)], first=True, after=6)
+for t in ["「手書きだから人間」とは判断しない",
+          "「誤字脱字があるから人間」と単独で判断しない",
+          "「文章が上手いからAI」とは判断しない",
+          "「構成が整っているからAI」と単独で判断しない",
+          "1つの特徴だけで極端なスコアにしない",
+          "「AIが書いた」と断定的に表現しない"]:
+    line_para(tf, [("・" + t, 12, BLACK, W3)], after=3)
+line_para(tf, [("高スコアは複数の根拠がそろう場合のみ。", 13, ACCENT, W6)], after=2)
+line_para(tf, [("（具体的体験がほぼない・抽象論が続く・", 12, BLACK, W3)], after=0)
+line_para(tf, [("　定型表現が多い・整いすぎ などが同時）", 12, BLACK, W3)], after=0)
+# 右：限界
+chip(s, Inches(6.9), Inches(1.5), Inches(6.0), Inches(0.55), "この指標の限界（必ず共有）", ACCENT, WHITE, size=13)
+rect(s, Inches(6.9), Inches(2.08), Inches(6.0), Inches(4.9), TINT)
+tf = box(s, Inches(7.15), Inches(2.25), Inches(5.55), Inches(4.6))
+line_para(tf, [("●　断定ではなく“可能性”の参考値です。", 13, BLACK, W3)], first=True, after=0)
+line_para(tf, [("　　最終判断は必ず人が行います。", 13, BLACK, W6)], after=8)
+line_para(tf, [("●　AI判定のため、同じ作文でも", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　スコアが多少揺れることがあります。", 13, BLACK, W3)], after=8)
+line_para(tf, [("●　文章力が高い生徒を過剰に疑わない", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　設計ですが、誤判定を完全には", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　排除できません。", 13, BLACK, W3)], after=8)
+line_para(tf, [("●　高スコアの作文は「クロ」ではなく、", 13, BLACK, W3)], after=0)
+line_para(tf, [("　　「人による確認を優先すべき作文」", 13, ACCENT, W6)], after=0)
+line_para(tf, [("　　と位置づけます。", 13, ACCENT, W6)], after=0)
+
+
+# ============ スライド6：想定問答 ============
+s = prs.slides.add_slide(BLANK)
+title(s, "想定問答 — 社長質問への回答案", 6)
 qa = [
     ("Q. どうやってAIが書いたか／自分で考えたかを判断しているのか？",
-     "A. 専用の生成AIに全作文を同一基準で読ませ、「本人の体験が見えるか」「整いすぎていないか」「AI特有の定型表現・均質な構成が続いていないか」の3観点で、0〜100のスコアと根拠3点を出力。機械的計算ではなく、基準を固定した採点者（AI）による見立てです。"),
-    ("Q. うまい作文をAI扱いしてしまわないか？",
-     "A. 「上手い／整っている／誤字が少ない」等の単独特徴だけでは高スコアにしないルールを明示。高スコアは複数の根拠がそろった場合のみです。"),
+     ["A. 専用の生成AIに全作文を同一基準で読ませ、「本人の体験が見えるか」",
+      "　 「整いすぎていないか」「AI特有の定型表現や均質な構成が続いていないか」の",
+      "　 3観点から、0〜100のスコアと根拠3点を出力します。",
+      "　 機械的な計算ではなく、基準を固定した採点者（AI）による見立てです。"]),
+    ("Q. 文章がうまい生徒を、AI扱いしてしまわないか？",
+     ["A. 「上手い・整っている・誤字が少ない」といった単独の特徴だけでは",
+      "　 高スコアにしないルールを明示しています。",
+      "　 高スコアになるのは、複数の根拠がそろった場合のみです。"]),
     ("Q. このスコアで処分や合否を決めてよいか？",
-     "A. いいえ。スクリーニング用の参考指標です。高スコアを抽出し、最終的には根拠と原文を人が確認して判断する運用を想定しています。"),
+     ["A. いいえ。スクリーニング用の参考指標です。",
+      "　 高スコアの作文を抽出し、最終的には根拠と原文を人が確認して",
+      "　 判断する運用を想定しています。"]),
 ]
-y = Inches(1.45)
-for q, a in qa:
-    tfq = add_box(s, Inches(0.6), y, Inches(12.1), Inches(0.5))
-    tfq.word_wrap = True
-    set_run(tfq.paragraphs[0].add_run(), q, 17, NAVY, bold=True)
-    tfa = add_box(s, Inches(0.8), y + Inches(0.5), Inches(11.9), Inches(1.2))
-    tfa.word_wrap = True
-    set_run(tfa.paragraphs[0].add_run(), a, 14, GRAY, bold=False)
-    y = y + Inches(1.85)
+y = Inches(1.5)
+for q, lines in qa:
+    rect(s, Inches(0.45), y, Inches(12.45), Pt(2), ACCENT)
+    tfq = box(s, Inches(0.5), y + Inches(0.08), Inches(12.3), Inches(0.45))
+    line_para(tfq, [(q, 15, ACCENT, W6)], first=True)
+    tfa = box(s, Inches(0.7), y + Inches(0.62), Inches(12.1), Inches(1.2))
+    for j, ln in enumerate(lines):
+        line_para(tfa, [(ln, 12.5, BLACK, W3)], first=(j == 0), after=1)
+    y = y + Inches(1.83)
 
 
 prs.save("AI関与スコア_算出方法_説明資料.pptx")
