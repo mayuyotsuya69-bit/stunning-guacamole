@@ -3,3 +3,6 @@
 *.xlsx
 *.xls
 *.pdf
+
+# node
+node_modules/
