@@ -1,0 +1,5 @@
+# Exclude all raw/derived DATA (contains student PII — names, scores). Never commit.
+*.csv
+*.xlsx
+*.xls
+*.pdf
